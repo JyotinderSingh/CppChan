@@ -1,0 +1,7 @@
+{
+  "files.associations": {
+    "*.ejs": "html",
+    "*-dockerfile": "dockerfile",
+    "queue": "cpp"
+  }
+}
