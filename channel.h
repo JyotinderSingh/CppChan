@@ -36,21 +36,25 @@ class Channel {
         }
         if (capacity == 0) {
             // Unbuffered channel: wait for a receiver
-            cv.wait(lock, [this] { return waitingReceivers > 0 || closed; });
-            if (closed)
+            cv_send.wait(lock,
+                         [this] { return waitingReceivers > 0 || closed; });
+            if (closed) {
                 throw std::runtime_error(
                     "Channel closed while waiting to send");
+            }
             --waitingReceivers;
             queue.push(value);
-            cv.notify_one();
+            cv_recv.notify_one();
         } else {
             // Buffered channel: wait if the buffer is full
-            cv.wait(lock, [this] { return queue.size() < capacity || closed; });
-            if (closed)
+            cv_send.wait(lock,
+                         [this] { return queue.size() < capacity || closed; });
+            if (closed) {
                 throw std::runtime_error(
                     "Channel closed while waiting to send");
+            }
             queue.push(value);
-            cv.notify_one();
+            cv_recv.notify_one();
         }
     }
 
@@ -104,19 +108,19 @@ class Channel {
         if (capacity == 0) {
             // Unbuffered channel: notify sender and wait for value
             ++waitingReceivers;
-            cv.notify_one();
-            cv.wait(lock, [this] { return !queue.empty() || closed; });
+            cv_send.notify_one();
+            cv_recv.wait(lock, [this] { return !queue.empty() || closed; });
             --waitingReceivers;
         } else {
             // Buffered channel: wait if the buffer is empty
-            cv.wait(lock, [this] { return !queue.empty() || closed; });
+            cv_recv.wait(lock, [this] { return !queue.empty() || closed; });
         }
         if (queue.empty() && closed) {
             return std::nullopt;
         }
         T value = queue.front();
         queue.pop();
-        cv.notify_one();
+        cv_send.notify_one();
         return value;
     }
 
@@ -213,7 +217,7 @@ class Channel {
    private:
     std::queue<T> queue;
     mutable std::mutex mtx;
-    std::condition_variable cv, cv_send, cv_recv;
+    std::condition_variable cv_send, cv_recv;
     bool closed = false;
     size_t capacity;
     size_t waitingReceivers = 0;
