@@ -5,6 +5,9 @@
 #include <optional>
 #include <queue>
 #include <stdexcept>
+#include <vector>
+
+class Selector;
 
 template <typename T>
 class Channel {
@@ -45,6 +48,9 @@ class Channel {
             --waitingReceivers;
             queue.push(value);
             cv_recv.notify_one();
+            for (auto selector : selectors) {
+                selector->notify();
+            }
         } else {
             // Buffered channel: wait if the buffer is full
             cv_send.wait(lock,
@@ -55,6 +61,9 @@ class Channel {
             }
             queue.push(value);
             cv_recv.notify_one();
+            for (auto selector : selectors) {
+                selector->notify();
+            }
         }
     }
 
@@ -89,6 +98,9 @@ class Channel {
         }
         queue.push(value);
         cv_recv.notify_one();
+        for (auto selector : selectors) {
+            selector->notify();
+        }
         return true;
     }
 
@@ -155,6 +167,8 @@ class Channel {
         }
         T value = queue.front();
         queue.pop();
+        std::cout << "Channel: received message, queue size now "
+                  << queue.size() << std::endl;
         cv_send.notify_one();
         return value;
     }
@@ -170,6 +184,9 @@ class Channel {
         closed = true;
         cv_send.notify_all();
         cv_recv.notify_all();
+        for (auto selector : selectors) {
+            selector->notify();
+        }
     }
 
     /**
@@ -215,10 +232,80 @@ class Channel {
     }
 
    private:
+    void register_selector(Selector* selector) {
+        std::unique_lock<std::mutex> lock(mtx);
+        selectors.push_back(selector);
+    }
+
+    void unregister_selector(Selector* selector) {
+        std::unique_lock<std::mutex> lock(mtx);
+        selectors.erase(
+            std::remove(selectors.begin(), selectors.end(), selector),
+            selectors.end());
+    }
+
     std::queue<T> queue;
     mutable std::mutex mtx;
     std::condition_variable cv_send, cv_recv;
     bool closed = false;
     size_t capacity;
     size_t waitingReceivers = 0;
+
+    friend class Selector;
+    std::vector<Selector*> selectors;
+};
+
+class Selector {
+   public:
+    template <typename T>
+    void add_receive(Channel<T>& ch, std::function<void(T)> callback) {
+        std::unique_lock<std::mutex> lock(mtx);
+        ch.register_selector(this);
+        channels.push_back(
+            [&ch, callback = std::move(callback), this]() mutable {
+                if (ch.is_closed()) {
+                    ch.unregister_selector(this);
+                    return true;  // Signal that this channel is done
+                }
+                auto value = ch.try_receive();
+                if (value) {
+                    callback(*value);
+                    return true;
+                }
+                return false;
+            });
+    }
+
+    bool select() {
+        std::unique_lock<std::mutex> lock(mtx);
+
+        auto it = std::find_if(channels.begin(), channels.end(),
+                               [](const auto& ch) { return ch(); });
+        if (it != channels.end()) {
+            return true;
+        }
+
+        if (channels.empty()) {
+            return false;  // All channels are closed
+        }
+
+        cv.wait(lock, [this] {
+            return std::any_of(channels.begin(), channels.end(),
+                               [](const auto& ch) { return ch(); });
+        });
+
+        it = std::find_if(channels.begin(), channels.end(),
+                          [](const auto& ch) { return ch(); });
+        if (it != channels.end()) {
+            channels.erase(it);  // Remove closed channels
+        }
+        return it != channels.end();
+    }
+
+    void notify() { cv.notify_all(); }
+
+   private:
+    std::vector<std::function<bool()>> channels;
+    std::mutex mtx;
+    std::condition_variable cv;
 };
