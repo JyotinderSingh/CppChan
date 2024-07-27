@@ -1,10 +1,10 @@
+#include "channel.h"
+
 #include <cassert>
 #include <chrono>
 #include <iostream>
 #include <thread>
 #include <vector>
-
-#include "channel.h"
 
 void log(const std::string& message) {
     printf("[%llu] %s\n",
@@ -166,7 +166,7 @@ void test_multiple_producers_consumers() {
     }
 
     for (int i = 0; i < num_consumers; ++i) {
-        consumers.emplace_back([&ch, &items_consumed, &total_items, i] {
+        consumers.emplace_back([&ch, &items_consumed, i] {
             while (items_consumed < total_items) {
                 auto received = ch.receive();
                 if (received) {

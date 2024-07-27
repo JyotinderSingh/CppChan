@@ -1,3 +1,6 @@
+#ifndef CHANNEL_H
+#define CHANNEL_H
+
 #include <chrono>
 #include <condition_variable>
 #include <future>
@@ -32,40 +35,7 @@ class Channel {
      * Use Case: Send data to other threads in a blocking manner.
      * Example: ch.send(42);
      */
-    void send(const T& value) {
-        std::unique_lock<std::mutex> lock(mtx);
-        if (closed) {
-            throw std::runtime_error("Send on closed channel");
-        }
-        if (capacity == 0) {
-            // Unbuffered channel: wait for a receiver
-            cv_send.wait(lock,
-                         [this] { return waitingReceivers > 0 || closed; });
-            if (closed) {
-                throw std::runtime_error(
-                    "Channel closed while waiting to send");
-            }
-            --waitingReceivers;
-            queue.push(value);
-            cv_recv.notify_one();
-            for (auto selector : selectors) {
-                selector->notify();
-            }
-        } else {
-            // Buffered channel: wait if the buffer is full
-            cv_send.wait(lock,
-                         [this] { return queue.size() < capacity || closed; });
-            if (closed) {
-                throw std::runtime_error(
-                    "Channel closed while waiting to send");
-            }
-            queue.push(value);
-            cv_recv.notify_one();
-            for (auto selector : selectors) {
-                selector->notify();
-            }
-        }
-    }
+    void send(const T& value);
 
     /**
      * @brief Asynchronously sends a value to the channel.
@@ -76,10 +46,7 @@ class Channel {
      * Example: auto future = ch.async_send(42);
      *          future.wait(); // Wait for the send to complete if needed
      */
-    std::future<void> async_send(const T& value) {
-        return std::async(std::launch::async,
-                          [this, value] { this->send(value); });
-    }
+    std::future<void> async_send(const T& value);
 
     /**
      * @brief Attempts to send a value to the channel without blocking.
@@ -91,18 +58,7 @@ class Channel {
      * successfully\n";
      *          }
      */
-    bool try_send(const T& value) {
-        std::unique_lock<std::mutex> lock(mtx);
-        if (closed || (capacity != 0 && queue.size() >= capacity)) {
-            return false;
-        }
-        queue.push(value);
-        cv_recv.notify_one();
-        for (auto selector : selectors) {
-            selector->notify();
-        }
-        return true;
-    }
+    bool try_send(const T& value);
 
     /**
      * @brief Receives a value from the channel. Blocks if the channel is empty.
@@ -115,26 +71,7 @@ class Channel {
      *              std::cout << "Received: " << *value << "\n";
      *          }
      */
-    std::optional<T> receive() {
-        std::unique_lock<std::mutex> lock(mtx);
-        if (capacity == 0) {
-            // Unbuffered channel: notify sender and wait for value
-            ++waitingReceivers;
-            cv_send.notify_one();
-            cv_recv.wait(lock, [this] { return !queue.empty() || closed; });
-            --waitingReceivers;
-        } else {
-            // Buffered channel: wait if the buffer is empty
-            cv_recv.wait(lock, [this] { return !queue.empty() || closed; });
-        }
-        if (queue.empty() && closed) {
-            return std::nullopt;
-        }
-        T value = queue.front();
-        queue.pop();
-        cv_send.notify_one();
-        return value;
-    }
+    std::optional<T> receive();
 
     /**
      * @brief Asynchronously receives a value from the channel.
@@ -144,11 +81,7 @@ class Channel {
      * Example: auto future = ch.async_receive();
      *          auto value = future.get();
      */
-    std::future<std::optional<T>> async_receive() {
-        return std::async(std::launch::async,
-                          [this] { return this->receive(); });
-    }
-
+    std::future<std::optional<T>> async_receive();
     /**
      * @brief Attempts to receive a value from the channel without blocking.
      * @return An optional containing the received value, or std::nullopt if the
@@ -160,18 +93,7 @@ class Channel {
      *  std::cout << "Received: " << *value << "\n";
      * }
      */
-    std::optional<T> try_receive() {
-        std::unique_lock<std::mutex> lock(mtx);
-        if (queue.empty()) {
-            return std::nullopt;
-        }
-        T value = queue.front();
-        queue.pop();
-        std::cout << "Channel: received message, queue size now "
-                  << queue.size() << std::endl;
-        cv_send.notify_one();
-        return value;
-    }
+    std::optional<T> try_receive();
 
     /**
      * @brief Closes the channel. No more values can be sent after closing.
@@ -179,15 +101,7 @@ class Channel {
      * Use Case: Signal that no more values will be sent on this channel.
      * Example: ch.close();
      */
-    void close() {
-        std::unique_lock<std::mutex> lock(mtx);
-        closed = true;
-        cv_send.notify_all();
-        cv_recv.notify_all();
-        for (auto selector : selectors) {
-            selector->notify();
-        }
-    }
+    void close();
 
     /**
      * @brief Checks if the channel is closed.
@@ -240,10 +154,7 @@ class Channel {
      * called directly.
      * @see Selector
      */
-    void register_selector(Selector* selector) {
-        std::unique_lock<std::mutex> lock(mtx);
-        selectors.push_back(selector);
-    }
+    void register_selector(Selector* selector);
 
     /**
      * @brief Unregisters a selector from the channel.
@@ -253,12 +164,7 @@ class Channel {
      * called directly.
      * @see Selector
      */
-    void unregister_selector(Selector* selector) {
-        std::unique_lock<std::mutex> lock(mtx);
-        selectors.erase(
-            std::remove(selectors.begin(), selectors.end(), selector),
-            selectors.end());
-    }
+    void unregister_selector(Selector* selector);
 
     std::queue<T> queue;
     mutable std::mutex mtx;
@@ -292,23 +198,7 @@ class Selector {
      * to be called when a message is received.
      */
     template <typename T>
-    void add_receive(Channel<T>& ch, std::function<void(T)> callback) {
-        std::unique_lock<std::mutex> lock(mtx);
-        ch.register_selector(this);
-        channels.push_back(
-            [&ch, callback = std::move(callback), this]() mutable {
-                if (ch.is_closed()) {
-                    ch.unregister_selector(this);
-                    return true;  // Signal that this channel is done
-                }
-                auto value = ch.try_receive();
-                if (value) {
-                    callback(*value);
-                    return true;
-                }
-                return false;
-            });
-    }
+    void add_receive(Channel<T>& ch, std::function<void(T)> callback);
 
     /**
      * @brief Waits for events on the registered channels and processes them.
@@ -329,31 +219,7 @@ class Selector {
      * }
      * @endcode
      */
-    bool select() {
-        std::unique_lock<std::mutex> lock(mtx);
-
-        auto it = std::find_if(channels.begin(), channels.end(),
-                               [](const auto& ch) { return ch(); });
-        if (it != channels.end()) {
-            return true;
-        }
-
-        if (channels.empty()) {
-            return false;  // All channels are closed
-        }
-
-        cv.wait(lock, [this] {
-            return std::any_of(channels.begin(), channels.end(),
-                               [](const auto& ch) { return ch(); });
-        });
-
-        it = std::find_if(channels.begin(), channels.end(),
-                          [](const auto& ch) { return ch(); });
-        if (it != channels.end()) {
-            channels.erase(it);  // Remove closed channels
-        }
-        return it != channels.end();
-    }
+    bool select();
 
     /**
      * @brief Notifies the selector that data may be available on the channels.
@@ -370,3 +236,7 @@ class Selector {
     std::mutex mtx;
     std::condition_variable cv;
 };
+
+#include "channel.cc"
+
+#endif  // CHANNEL_H
