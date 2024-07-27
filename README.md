@@ -27,7 +27,13 @@ Ensure you're compiling with C++17 support (-std=c++17 flag for most compilers).
 ## Build
 
 ```bash
-clang++ -std=c++17 -pthread main.cc -o main
+make
+```
+
+## Test
+
+```bash
+make test
 ```
 
 ## Thread Safety
