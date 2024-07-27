@@ -2,6 +2,8 @@
 
 CppChan is a high-performance, thread-safe channel in C++17, inspired by Go's channels. It provides a flexible communication mechanism for concurrent programming, supporting both buffered and unbuffered channels with synchronous and asynchronous operations.
 
+It also supports a selector mechanism to wait on multiple channels simultaneously, allowing you to handle incoming data from multiple sources efficiently.
+
 ## Features
 
 - Templated design for any data type
@@ -10,7 +12,7 @@ CppChan is a high-performance, thread-safe channel in C++17, inspired by Go's ch
 - Blocking and non-blocking send/receive
 - RAII-compliant resource handling
 - Thread-safe closure mechanism
-- Optimized for high-concurrency scenarios
+- Selector for waiting on multiple channels
 
 ## Installation
 
@@ -242,4 +244,148 @@ Example
 
 ```cpp
 std::cout << "Items in channel: " << ch.size() << "\n";
+```
+
+### Selector Operations
+
+The `Selector` class allows you to wait on multiple channels and execute callbacks when data is received.
+
+#### Add Channel to Selector
+
+```cpp
+template <typename T>
+void add_receive(Channel<T>& ch, std::function<void(T)> callback)
+```
+
+Registers a channel and its receive callback with the selector.
+
+Use case: Wait on multiple channels and handle incoming data.
+
+Example
+
+```cpp
+Selector selector;
+selector.add_receive(ch, [](int value) {
+    std::cout << "Received: " << value << "\n";
+});
+```
+
+#### Wait for Events
+
+```cpp
+bool select()
+```
+
+Waits for events on the registered channels. The function returns true if an event was handled, false if all channels are closed.
+
+Use case: Continuously handle incoming data from multiple channels.
+
+Example
+
+```cpp
+while (selector.select()) {
+    // Handle events
+}
+```
+
+#### Notify Selector
+
+```cpp
+void notify()
+```
+
+Notifies the selector that there may be new events to process.
+
+Use case: Internally used by channels to notify the selector.
+
+Example
+
+```cpp
+selector.notify();
+```
+
+## Usage Examples
+
+### Basic Usage
+
+```cpp
+#include "channel.h"
+#include <iostream>
+
+int main() {
+    Channel<int> ch(2);  // Buffered channel with capacity 2
+
+    ch.send(1);
+    ch.send(2);
+
+    std::cout << "Received: " << *ch.receive() << std::endl;
+    std::cout << "Received: " << *ch.receive() << std::endl;
+
+    return 0;
+}
+```
+
+### Asynchronous Operations
+
+```cpp
+#include "channel.h"
+#include <iostream>
+#include <future>
+
+int main() {
+    Channel<int> ch;
+
+    auto future_send = ch.async_send(42);
+    auto future_recv = ch.async_receive();
+
+    future_send.wait();
+    auto value = future_recv.get();
+
+    if (value) {
+        std::cout << "Received: " << *value << std::endl;
+    }
+
+    return 0;
+}
+```
+
+### Using Selector
+
+```cpp
+#include "channel.h"
+#include <iostream>
+#include <thread>
+
+void producer(Channel<int>& ch) {
+    for (int i = 0; i < 10; ++i) {
+        ch.send(i);
+    }
+    ch.close();
+}
+
+int main() {
+    Channel<int> ch1(5);
+    Channel<int> ch2(5);
+    Selector selector;
+
+    selector.add_receive(ch1, [](int value) {
+        std::cout << "Channel 1 received: " << value << std::endl;
+    });
+
+    selector.add_receive(ch2, [](int value) {
+        std::cout << "Channel 2 received: " << value << std::endl;
+    });
+
+    std::thread t1(producer, std::ref(ch1));
+    std::thread t2(producer, std::ref(ch2));
+
+    while (selector.select()) {
+        // Handle events
+    }
+
+    t1.join();
+    t2.join();
+
+    return 0;
+}
 ```

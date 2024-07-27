@@ -232,11 +232,27 @@ class Channel {
     }
 
    private:
+    /**
+     * @brief Registers a selector with the channel.
+     *
+     * @param selector The selector to register.
+     * @note This function is called by the Selector class and should not be
+     * called directly.
+     * @see Selector
+     */
     void register_selector(Selector* selector) {
         std::unique_lock<std::mutex> lock(mtx);
         selectors.push_back(selector);
     }
 
+    /**
+     * @brief Unregisters a selector from the channel.
+     *
+     * @param selector The selector to unregister.
+     * @note This function is called by the Selector class and should not be
+     * called directly.
+     * @see Selector
+     */
     void unregister_selector(Selector* selector) {
         std::unique_lock<std::mutex> lock(mtx);
         selectors.erase(
@@ -255,8 +271,26 @@ class Channel {
     std::vector<Selector*> selectors;
 };
 
+/**
+ * @brief A Selector class for non-blocking channel operations.
+ *
+ * The Selector class allows multiple Channel objects to be monitored
+ * simultaneously for incoming messages. It provides a select() method that
+ * blocks until a message is received on any of the registered channels.
+ *
+ */
 class Selector {
    public:
+    /**
+     * @brief Adds a channel to the selector for receiving messages.
+     *
+     * @tparam T the type of the channel.
+     * @param ch The channel to add.
+     * @param callback The callback function to call when a message is received.
+     *
+     * Use Case: Add a channel to the selector and specify a callback function
+     * to be called when a message is received.
+     */
     template <typename T>
     void add_receive(Channel<T>& ch, std::function<void(T)> callback) {
         std::unique_lock<std::mutex> lock(mtx);
@@ -276,6 +310,25 @@ class Selector {
             });
     }
 
+    /**
+     * @brief Waits for events on the registered channels and processes them.
+     *
+     * This function blocks until at least one of the registered channels has
+     * data available or all channels are closed. It checks the channels for
+     * data and processes the first channel that has data available. If no
+     * channels have data immediately available, it waits until notified that
+     * data may be available.
+     *
+     * @return true if an event was handled, false if all channels are closed.
+     *
+     * Use Case: Continuously handle incoming data from multiple channels.
+     * Example:
+     * @code
+     * while (selector.select()) {
+     *     // Handle events
+     * }
+     * @endcode
+     */
     bool select() {
         std::unique_lock<std::mutex> lock(mtx);
 
@@ -302,6 +355,14 @@ class Selector {
         return it != channels.end();
     }
 
+    /**
+     * @brief Notifies the selector that data may be available on the channels.
+     *
+     * Use Case: Notify the selector that data may be available on the channels.
+     * Example: selector.notify();
+     * @note This function is called by the Channel class and should not be
+     * called directly.
+     */
     void notify() { cv.notify_all(); }
 
    private:
