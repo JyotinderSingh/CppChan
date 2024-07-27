@@ -140,37 +140,35 @@ void Selector::add_receive(Channel<T>& ch, std::function<void(T)> callback) {
         auto value = ch.try_receive();
         if (value) {
             callback(*value);  // Call the callback with the received value
-            return true;
+            return false;
         }
         return false;
     });
 }
 
-bool Selector::select() {
+void Selector::select(const std::atomic<bool>& should_stop) {
     std::unique_lock<std::mutex> lock(mtx);
 
-    // Try to find a channel that has data available
-    auto it = std::find_if(channels.begin(), channels.end(),
-                           [](const auto& ch) { return ch(); });
-    if (it != channels.end()) {
-        return true;
-    }
+    while (!should_stop) {
+        // Wait until a channel has data available or should_stop becomes true
+        cv.wait(lock, [this, &should_stop] {
+            return should_stop ||
+                   std::any_of(channels.begin(), channels.end(),
+                               [](const auto& ch) { return ch(); });
+        });
 
-    if (channels.empty()) {
-        return false;  // No channels to select from
-    }
+        // Process all channels that have data available
+        for (auto ch_it = channels.begin(); ch_it != channels.end();) {
+            if ((*ch_it)()) {
+                // Data processed, remove this channel from the list
+                ch_it = channels.erase(ch_it);
+            } else {
+                ++ch_it;
+            }
+        }
 
-    // Wait until a channel has data available
-    cv.wait(lock, [this] {
-        return std::any_of(channels.begin(), channels.end(),
-                           [](const auto& ch) { return ch(); });
-    });
-
-    // Find the channel that has data and remove it from the list
-    it = std::find_if(channels.begin(), channels.end(),
-                      [](const auto& ch) { return ch(); });
-    if (it != channels.end()) {
-        channels.erase(it);
+        if (should_stop && channels.empty()) {
+            return;  // No more channels to select from, exit
+        }
     }
-    return it != channels.end();
 }

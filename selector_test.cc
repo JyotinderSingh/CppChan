@@ -8,16 +8,23 @@
 
 std::atomic<bool> should_stop(false);
 
+void log(const std::string& message) {
+    printf("[%llu] %s\n",
+           static_cast<unsigned long long>(
+               std::hash<std::thread::id>{}(std::this_thread::get_id())),
+           message.c_str());
+}
+
 void int_producer(Channel<int>& ch, int id, int count) {
     for (int i = 0; i < count && !should_stop; ++i) {
         std::this_thread::sleep_for(std::chrono::milliseconds(rand() % 500));
         int value = id * 1000 + i;
         if (ch.try_send(value)) {
-            std::cout << "Int Producer " << id << " sent: " << value
-                      << std::endl;
+            log("Int Producer " + std::to_string(id) +
+                " sent: " + std::to_string(value));
         } else {
-            std::cout << "Int Producer " << id << " failed to send: " << value
-                      << std::endl;
+            log("Int Producer " + std::to_string(id) +
+                " failed to send: " + std::to_string(value));
         }
     }
 }
@@ -28,11 +35,10 @@ void string_producer(Channel<std::string>& ch, int id, int count) {
         std::string value =
             "Message " + std::to_string(id) + "-" + std::to_string(i);
         if (ch.try_send(value)) {
-            std::cout << "String Producer " << id << " sent: " << value
-                      << std::endl;
+            log("String Producer " + std::to_string(id) + " sent: " + value);
         } else {
-            std::cout << "String Producer " << id
-                      << " failed to send: " << value << std::endl;
+            log("String Producer " + std::to_string(id) +
+                " failed to send: " + value);
         }
     }
 }
@@ -41,27 +47,16 @@ void consumer(Channel<int>& ch_int, Channel<std::string>& ch_str) {
     Selector selector;
 
     selector.add_receive<int>(ch_int, [](int value) {
-        std::cout << "Received int: " << value << std::endl;
+        log("Received int: " + std::to_string(value));
     });
 
     selector.add_receive<std::string>(ch_str, [](const std::string& value) {
-        std::cout << "Received string: " << value << std::endl;
+        log("Received string: " + value);
     });
 
-    while (!should_stop) {
-        if (!selector.select()) {
-            std::this_thread::yield();
-        }
-    }
+    selector.select(should_stop);
 
-    // Process any remaining messages
-    while (selector.select()) {
-        if (should_stop) {
-            break;
-        }
-    }
-
-    std::cout << "Consumer finished" << std::endl;
+    log("Consumer stopped");
 }
 
 int main() {

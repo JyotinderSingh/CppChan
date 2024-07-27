@@ -271,7 +271,7 @@ Example
 
 ```cpp
 Selector selector;
-selector.add_receive(ch, [](int value) {
+selector.add_receive</*type_of_channel=*/int>(ch, [](int value) {
     std::cout << "Received: " << value << "\n";
 });
 ```
@@ -279,19 +279,26 @@ selector.add_receive(ch, [](int value) {
 #### Wait for Events
 
 ```cpp
-bool select()
+void select(const std::atomic<bool>& should_stop)
 ```
 
-Waits for events on the registered channels. The function returns true if an event was handled, false if all channels are closed.
+Continuously waits for events on the registered channels until signaled to stop. This method runs in a loop, processing available data and removing processed channels.
 
-Use case: Continuously handle incoming data from multiple channels.
+Use case: Continuously handle incoming data from multiple channels in a separate thread.
 
 Example
 
 ```cpp
-while (selector.select()) {
-    // Handle events
-}
+std::atomic<bool> should_stop(false);
+
+std::thread selector_thread([&]() {
+    selector.select(should_stop);
+});
+
+// Do other work...
+
+should_stop = true;  // Signal the selector to stop
+selector_thread.join();
 ```
 
 #### Notify Selector
@@ -357,10 +364,17 @@ int main() {
 
 ### Using Selector
 
+````cpp
+For the Usage Examples section, update the Selector example as follows:
+
+```markdown
+### Using Selector
+
 ```cpp
 #include "channel.h"
 #include <iostream>
 #include <thread>
+#include <atomic>
 
 void producer(Channel<int>& ch) {
     for (int i = 0; i < 10; ++i) {
@@ -374,24 +388,28 @@ int main() {
     Channel<int> ch2(5);
     Selector selector;
 
-    selector.add_receive(ch1, [](int value) {
+    selector.add_receive<int>(ch1, [](int value) {
         std::cout << "Channel 1 received: " << value << std::endl;
     });
 
-    selector.add_receive(ch2, [](int value) {
+    selector.add_receive<int>(ch2, [](int value) {
         std::cout << "Channel 2 received: " << value << std::endl;
     });
 
     std::thread t1(producer, std::ref(ch1));
     std::thread t2(producer, std::ref(ch2));
 
-    while (selector.select()) {
-        // Handle events
-    }
+    std::atomic<bool> should_stop(false);
+    std::thread selector_thread([&]() {
+        selector.select(should_stop);
+    });
 
     t1.join();
     t2.join();
 
+    should_stop = true;  // Signal the selector to stop
+    selector_thread.join();
+
     return 0;
 }
-```
+````

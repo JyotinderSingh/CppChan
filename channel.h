@@ -201,25 +201,34 @@ class Selector {
     void add_receive(Channel<T>& ch, std::function<void(T)> callback);
 
     /**
-     * @brief Waits for events on the registered channels and processes them.
+     * @brief Continuously processes events on registered channels until
+     * signaled to stop.
      *
-     * This function blocks until at least one of the registered channels has
-     * data available or all channels are closed. It checks the channels for
-     * data and processes the first channel that has data available. If no
-     * channels have data immediately available, it waits until notified that
-     * data may be available.
+     * This method runs a loop that:
+     * 1. Waits for data to become available on any channel or for a stop
+     * signal.
+     * 2. Processes all available data once woken up.
+     * 3. Removes channels that have been processed.
+     * The loop continues until either all channels are processed or a stop is
+     * requested.
      *
-     * @return true if an event was handled, false if all channels are closed.
+     * @param should_stop An atomic boolean that signals the operation to
+     * terminate when set to true.
      *
-     * Use Case: Continuously handle incoming data from multiple channels.
-     * Example:
+     * Usage example:
      * @code
-     * while (selector.select()) {
-     *     // Handle events
-     * }
+     * std::atomic<bool> should_stop(false);
+     * std::thread selector_thread([&]() {
+     *     selector.select(should_stop);
+     * });
+     *
+     * // Do other work...
+     *
+     * should_stop = true;  // Signal the selector to stop
+     * selector_thread.join();
      * @endcode
      */
-    bool select();
+    void select(const std::atomic<bool>& should_stop);
 
     /**
      * @brief Notifies the selector that data may be available on the channels.
