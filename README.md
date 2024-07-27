@@ -16,7 +16,7 @@ It also supports a selector mechanism to wait on multiple channels simultaneousl
 
 ## Installation
 
-This is a header-only library. To use it in your project, simply include the `channel.h` file:
+To use it in your project, simply include the `channel.h` file:
 
 ```cpp
 #include "channel.h"
