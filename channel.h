@@ -26,6 +26,17 @@ class Channel {
      */
     Channel(size_t cap = 0) : capacity(cap) {}
 
+    // Disable copying and moving
+    Channel(const Channel&) = delete;
+    Channel& operator=(const Channel&) = delete;
+    Channel(Channel&&) = delete;
+    Channel& operator=(Channel&&) = delete;
+
+    // Destructor
+    ~Channel() {
+        close();  // Ensure the channel is closed before destruction
+    }
+
     /**
      * @brief Sends a value to the channel. Blocks if the channel is full
      * (buffered) or if there's no receiver (unbuffered).
@@ -187,6 +198,16 @@ class Channel {
  */
 class Selector {
    public:
+    Selector() = default;
+    // Disable copying and moving
+    Selector(const Selector&) = delete;
+    Selector& operator=(const Selector&) = delete;
+    Selector(Selector&&) = delete;
+    Selector& operator=(Selector&&) = delete;
+
+    // Destructor
+    ~Selector() = default;
+
     /**
      * @brief Adds a channel to the selector for receiving messages.
      *
