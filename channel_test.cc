@@ -35,12 +35,12 @@ void test_buffered_channel() {
 
     std::this_thread::sleep_for(std::chrono::milliseconds(100));
     log("Receiving 1");
-    assert(*ch.receive() == 1);
+    assert(*ch.receive() == 1 && "Failed to receive 1");
     blocker.join();
 
     log("Receiving remaining values");
-    assert(*ch.receive() == 2);
-    assert(*ch.receive() == 3);
+    assert(*ch.receive() == 2 && "Failed to receive 2");
+    assert(*ch.receive() == 3 && "Failed to receive 3");
 
     log("Buffered channel test completed");
 }
@@ -62,7 +62,7 @@ void test_unbuffered_channel() {
 
     std::this_thread::sleep_for(std::chrono::milliseconds(100));
     log("Receiving 1");
-    assert(*ch.receive() == 1);
+    assert(*ch.receive() == 1 && "Failed to receive 1");
     sender.join();
 
     log("Unbuffered channel test completed");
@@ -79,7 +79,7 @@ void test_async_operations() {
     auto future_recv = ch.async_receive();
 
     log("Waiting for async receive to complete");
-    assert(*future_recv.get() == 1);
+    assert(*future_recv.get() == 1 && "Async receive failed");
     log("Async receive completed");
 
     log("Waiting for async send to complete");
@@ -94,17 +94,17 @@ void test_try_operations() {
     Channel<int> ch(1);
 
     log("Trying to send 1 (should succeed)");
-    assert(ch.try_send(1));
+    assert(ch.try_send(1) && "Failed to send 1");
 
     log("Trying to send 2 (should fail as channel is full)");
-    assert(!ch.try_send(2));
+    assert(!ch.try_send(2) && "Unexpectedly succeeded in sending 2");
 
     log("Trying to receive (should succeed)");
     auto received = ch.try_receive();
-    assert(received && *received == 1);
+    assert(received && *received == 1 && "Failed to receive 1");
 
     log("Trying to receive again (should fail as channel is empty)");
-    assert(!ch.try_receive());
+    assert(!ch.try_receive() && "Unexpectedly succeeded in receiving");
 
     log("Try operations test completed");
 }
@@ -122,18 +122,19 @@ void test_close_operations() {
     log("Attempting to send on closed channel (should throw an exception)");
     try {
         ch.send(2);
+        assert(false && "Expected exception was not thrown");
     } catch (const std::runtime_error& e) {
         log("Caught expected exception: " + std::string(e.what()));
     }
 
     log("Receiving from closed channel");
     auto value = ch.receive();
-    assert(value && *value == 1);
+    assert(value && *value == 1 && "Failed to receive 1 from closed channel");
     log("Received 1 from closed channel");
 
     log("Receiving again from closed and empty channel");
     value = ch.receive();
-    assert(!value);
+    assert(!value && "Unexpectedly received a value from empty closed channel");
     log("Received nullopt as expected");
 
     log("Close operations test completed");
@@ -192,9 +193,11 @@ void test_multiple_producers_consumers() {
     for (auto& t : consumers) t.join();
     log("All consumers finished");
 
-    assert(items_produced == total_items);
-    assert(items_consumed == total_items);
-    assert(ch.is_empty());
+    assert(items_produced == total_items &&
+           "Incorrect number of items produced");
+    assert(items_consumed == total_items &&
+           "Incorrect number of items consumed");
+    assert(ch.is_empty() && "Channel is not empty after test");
     log("Multiple producers and consumers test completed");
 }
 

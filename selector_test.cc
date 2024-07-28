@@ -1,4 +1,5 @@
 #include <atomic>
+#include <cassert>
 #include <chrono>
 #include <iostream>
 #include <random>
@@ -17,13 +18,10 @@ void int_producer(Channel<int>& ch, int id, int count) {
     for (int i = 0; i < count; ++i) {
         std::this_thread::sleep_for(std::chrono::milliseconds(rand() % 500));
         int value = id * 1000 + i;
-        if (ch.try_send(value)) {
-            log("Int Producer " + std::to_string(id) +
-                " sent: " + std::to_string(value));
-        } else {
-            log("Int Producer " + std::to_string(id) +
-                " failed to send: " + std::to_string(value));
-        }
+        bool sent = ch.try_send(value);
+        assert(sent && "Int Producer failed to send");
+        log("Int Producer " + std::to_string(id) +
+            " sent: " + std::to_string(value));
     }
 }
 
@@ -32,28 +30,36 @@ void string_producer(Channel<std::string>& ch, int id, int count) {
         std::this_thread::sleep_for(std::chrono::milliseconds(rand() % 500));
         std::string value =
             "Message " + std::to_string(id) + "-" + std::to_string(i);
-        if (ch.try_send(value)) {
-            log("String Producer " + std::to_string(id) + " sent: " + value);
-        } else {
-            log("String Producer " + std::to_string(id) +
-                " failed to send: " + value);
-        }
+        bool sent = ch.try_send(value);
+        assert(sent && "String Producer failed to send");
+        log("String Producer " + std::to_string(id) + " sent: " + value);
     }
 }
 
 void consumer(Channel<int>& ch_int, Channel<std::string>& ch_str,
               Selector& selector) {
-    selector.add_receive<int>(ch_int, [](int value) {
+    int int_count = 0;
+    int str_count = 0;
+
+    selector.add_receive<int>(ch_int, [&int_count](int value) {
         log("Received int: " + std::to_string(value));
+        int_count++;
     });
 
-    selector.add_receive<std::string>(ch_str, [](const std::string& value) {
-        log("Received string: " + value);
-    });
+    selector.add_receive<std::string>(ch_str,
+                                      [&str_count](const std::string& value) {
+                                          log("Received string: " + value);
+                                          str_count++;
+                                      });
 
-    selector.select();
+    while (!ch_int.is_closed() || !ch_str.is_closed()) {
+        selector.select();
+    }
 
     log("Consumer stopped");
+
+    assert(int_count == 40 && "Incorrect number of int messages received");
+    assert(str_count == 20 && "Incorrect number of string messages received");
 }
 
 int main() {
@@ -72,14 +78,14 @@ int main() {
     prod2.join();
     prod3.join();
 
-    // Close the channels
     ch_int.close();
     ch_str.close();
 
-    // Stop the selector
+    assert(ch_int.is_closed() && "Int channel not closed");
+    assert(ch_str.is_closed() && "String channel not closed");
+
     selector.stop();
 
-    // Wait for consumer to finish
     cons.join();
 
     return 0;
