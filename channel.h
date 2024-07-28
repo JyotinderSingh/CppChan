@@ -198,7 +198,7 @@ class Channel {
  */
 class Selector {
    public:
-    Selector() = default;
+    Selector() : stop_flag_(false) {}
     // Disable copying and moving
     Selector(const Selector&) = delete;
     Selector& operator=(const Selector&) = delete;
@@ -233,36 +233,53 @@ class Selector {
      * The loop continues until either all channels are processed or a stop is
      * requested.
      *
-     * @param should_stop An atomic boolean that signals the operation to
-     * terminate when set to true.
-     *
      * Usage example:
      * @code
-     * std::atomic<bool> should_stop(false);
      * std::thread selector_thread([&]() {
-     *     selector.select(should_stop);
+     *     selector.select();
      * });
      *
      * // Do other work...
      *
-     * should_stop = true;  // Signal the selector to stop
-     * selector_thread.join();
+     * selector.stop();
      * @endcode
      */
-    void select(const std::atomic<bool>& should_stop);
+    void select();
+
+    /**
+     * @brief Stops the select operation and unblocks the select() method.
+     *
+     * Use Case: Stop the selector and unblock the select() method.
+     * Example: selector.stop();
+     */
+    void stop() {
+        stop_flag_.test_and_set(std::memory_order_relaxed);
+        notify();
+    }
 
     /**
      * @brief Notifies the selector that data may be available on the channels.
      *
      * Use Case: Notify the selector that data may be available on the channels.
      * Example: selector.notify();
-     * @note This function is called by the Channel class and should not be
-     * called directly.
+     * @note This function is meant for internal use and should not be called
+     * directly (unless you know what you're doing).
      */
     void notify() { cv.notify_all(); }
 
    private:
+    /**
+     * @brief Checks if a stop has been requested.
+     *
+     * @return true
+     * @return false
+     */
+    bool stop_requested() const {
+        return stop_flag_.test(std::memory_order_relaxed);
+    }
+
     std::vector<std::function<bool()>> channels;
+    std::atomic_flag stop_flag_;
     std::mutex mtx;
     std::condition_variable cv;
 };

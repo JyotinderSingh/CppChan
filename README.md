@@ -271,7 +271,7 @@ Example
 
 ```cpp
 Selector selector;
-selector.add_receive</*type_of_channel=*/int>(ch, [](int value) {
+selector.add_receive<std::string>(ch, [](std::string value) {
     std::cout << "Received: " << value << "\n";
 });
 ```
@@ -279,42 +279,33 @@ selector.add_receive</*type_of_channel=*/int>(ch, [](int value) {
 #### Wait for Events
 
 ```cpp
-void select(const std::atomic<bool>& should_stop)
+void select()
 ```
 
-Continuously waits for events on the registered channels until signaled to stop. This method runs in a loop, processing available data and removing processed channels.
+Continuously waits for events on the registered channels. This method runs in a loop (without busy-wait), processing available data until all channels are closed and emptied.
 
-Use case: Continuously handle incoming data from multiple channels in a separate thread.
+Use case: Continuously handle incoming data from multiple channels.
 
 Example
 
 ```cpp
-std::atomic<bool> should_stop(false);
-
-std::thread selector_thread([&]() {
-    selector.select(should_stop);
-});
-
-// Do other work...
-
-should_stop = true;  // Signal the selector to stop
-selector_thread.join();
+selector.select();
 ```
 
-#### Notify Selector
+#### Stop Selector
 
 ```cpp
-void notify()
+void stop()
 ```
 
-Notifies the selector that there may be new events to process.
+Signals the selector to stop processing events.
 
-Use case: Internally used by channels to notify the selector.
+Use case: Stop the selector from outside the select loop.
 
 Example
 
 ```cpp
-selector.notify();
+selector.stop();
 ```
 
 ## Usage Examples
@@ -364,23 +355,30 @@ int main() {
 
 ### Using Selector
 
-````cpp
-For the Usage Examples section, update the Selector example as follows:
-
-```markdown
-### Using Selector
-
 ```cpp
 #include "channel.h"
+#include "selector.h"
 #include <iostream>
 #include <thread>
-#include <atomic>
 
-void producer(Channel<int>& ch) {
-    for (int i = 0; i < 10; ++i) {
-        ch.send(i);
+void producer(Channel<int>& ch, int id, int count) {
+    for (int i = 0; i < count; ++i) {
+        ch.send(id * 1000 + i);
     }
     ch.close();
+}
+
+void consumer(Channel<int>& ch1, Channel<int>& ch2, Selector& selector) {
+    selector.add_receive<int>(ch1, [&](int value) {
+        std::cout << "Channel 1 received: " << value << std::endl;
+    });
+
+    selector.add_receive<int>(ch2, [&](int value) {
+        std::cout << "Channel 2 received: " << value << std::endl;
+    });
+
+    selector.select();
+
 }
 
 int main() {
@@ -388,28 +386,17 @@ int main() {
     Channel<int> ch2(5);
     Selector selector;
 
-    selector.add_receive<int>(ch1, [](int value) {
-        std::cout << "Channel 1 received: " << value << std::endl;
-    });
-
-    selector.add_receive<int>(ch2, [](int value) {
-        std::cout << "Channel 2 received: " << value << std::endl;
-    });
-
-    std::thread t1(producer, std::ref(ch1));
-    std::thread t2(producer, std::ref(ch2));
-
-    std::atomic<bool> should_stop(false);
-    std::thread selector_thread([&]() {
-        selector.select(should_stop);
-    });
+    std::thread t1(producer, std::ref(ch1), 1, 10);
+    std::thread t2(producer, std::ref(ch2), 2, 10);
+    std::thread cons(consumer, std::ref(ch1), std::ref(ch2), std::ref(selector));
 
     t1.join();
     t2.join();
 
-    should_stop = true;  // Signal the selector to stop
-    selector_thread.join();
+    selector.stop();
+
+    cons.join();
 
     return 0;
 }
-````
+```

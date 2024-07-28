@@ -146,13 +146,13 @@ void Selector::add_receive(Channel<T>& ch, std::function<void(T)> callback) {
     });
 }
 
-void Selector::select(const std::atomic<bool>& should_stop) {
+void Selector::select() {
     std::unique_lock<std::mutex> lock(mtx);
 
-    while (!should_stop) {
-        // Wait until a channel has data available or should_stop becomes true
-        cv.wait(lock, [this, &should_stop] {
-            return should_stop ||
+    while (!stop_requested()) {
+        // Wait until a channel has data available or a stop is requested.
+        cv.wait(lock, [this] {
+            return stop_requested() ||
                    std::any_of(channels.begin(), channels.end(),
                                [](const auto& ch) { return ch(); });
         });
@@ -167,8 +167,8 @@ void Selector::select(const std::atomic<bool>& should_stop) {
             }
         }
 
-        if (should_stop && channels.empty()) {
-            return;  // No more channels to select from, exit
+        if (channels.empty()) {
+            break;
         }
     }
 }
